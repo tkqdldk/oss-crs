@@ -273,3 +273,36 @@ class TestOverrideLitellmProxy:
         # Unknown provider model should be untouched
         mixtral = result["model_list"][3]
         assert mixtral["litellm_params"]["api_key"] == "os.environ/MISTRAL_KEY"
+
+    def test_skips_custom_non_default_keys(self):
+        """Entries with custom keys (e.g. VLLM_KEY) are never touched."""
+        config = {
+            "model_list": [
+                {
+                    "model_name": "local-model",
+                    "litellm_params": {
+                        "model": "openai/Qwen/Qwen3-0.6B",
+                        "api_key": "os.environ/VLLM_KEY",
+                        "api_base": "http://localhost:8000/v1",
+                    },
+                },
+                {
+                    "model_name": "gpt-4o",
+                    "litellm_params": {
+                        "model": "openai/gpt-4o",
+                        "api_key": "os.environ/OPENAI_API_KEY",
+                    },
+                },
+            ]
+        }
+        result = override_litellm_proxy(config, key_env="PROXY_KEY", base_url_env="PROXY_BASE")
+
+        # VLLM_KEY entry: untouched
+        local = result["model_list"][0]
+        assert local["litellm_params"]["api_key"] == "os.environ/VLLM_KEY"
+        assert local["litellm_params"]["api_base"] == "http://localhost:8000/v1"
+
+        # OPENAI_API_KEY entry: overridden
+        gpt = result["model_list"][1]
+        assert gpt["litellm_params"]["api_key"] == "os.environ/PROXY_KEY"
+        assert gpt["litellm_params"]["api_base"] == "os.environ/PROXY_BASE"

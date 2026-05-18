@@ -58,6 +58,18 @@ def validate_providers(providers: list[str]) -> None:
         )
 
 
+# Set of all known default provider key env vars for quick membership tests.
+_DEFAULT_KEY_ENVS = {info["default_key_env"] for info in LITELLM_PROVIDERS.values()}
+
+
+def _is_default_provider_key(api_key_value: str) -> bool:
+    """Return True if *api_key_value* references a known default provider key."""
+    if not api_key_value.startswith("os.environ/"):
+        return False
+    env_name = api_key_value.split("os.environ/", 1)[1]
+    return env_name in _DEFAULT_KEY_ENVS
+
+
 def override_litellm_proxy(
     config: dict,
     key_env: str,
@@ -66,9 +78,12 @@ def override_litellm_proxy(
 ) -> dict:
     """Rewrite a litellm config dict to route selected providers through a proxy.
 
-    For every model entry whose provider matches *providers* (default: all),
+    For every model entry whose provider matches *providers* (default: all)
+    **and** whose ``api_key`` currently references a known default provider key,
     replace the ``api_key`` with ``os.environ/<key_env>`` and, when
     *base_url_env* is given, set ``api_base`` to ``os.environ/<base_url_env>``.
+
+    Entries with custom/non-standard keys (e.g. ``VLLM_KEY``) are never touched.
 
     Returns a **new** dict; the original is not mutated.
     """
@@ -87,12 +102,37 @@ def override_litellm_proxy(
         provider = _provider_for_model(model)
         if provider is None or provider not in target_providers:
             continue
+        # Only override entries that use a known default provider key.
+        if not _is_default_provider_key(params.get("api_key", "")):
+            continue
         params["api_key"] = f"os.environ/{key_env}"
         if base_url_env is not None:
             params["api_base"] = f"os.environ/{base_url_env}"
         else:
             params.pop("api_base", None)
     return config
+
+
+def apply_litellm_proxy_to_file(
+    path: Path,
+    key_env: str,
+    base_url_env: Optional[str] = None,
+    providers: Optional[list[str]] = None,
+) -> bool:
+    """Apply proxy overrides to a litellm config file in-place.
+
+    Returns True if the file was modified, False if no changes were needed.
+    """
+    with open(path) as f:
+        original = yaml.safe_load(f) or {}
+
+    updated = override_litellm_proxy(original, key_env, base_url_env, providers)
+    if updated == original:
+        return False
+
+    with open(path, "w") as f:
+        yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
+    return True
 
 
 class LLM:

@@ -435,7 +435,7 @@ def _handle_gen_compose(args) -> bool:
 
     # 5b. LiteLLM proxy override (rewrites env vars in litellm config)
     if args.litellm_proxy:
-        from ..llm import override_litellm_proxy, validate_providers, LITELLM_PROVIDERS
+        from ..llm import apply_litellm_proxy_to_file, validate_providers, LITELLM_PROVIDERS
 
         proxy_args = args.litellm_proxy
         if len(proxy_args) < 2 or len(proxy_args) > 3:
@@ -457,20 +457,10 @@ def _handle_gen_compose(args) -> bool:
                 "The example has no llm_config with internal mode config_path."
             )
 
-        with open(litellm_config_path) as f:
-            litellm_config = yaml.safe_load(f) or {}
-
-        litellm_config = override_litellm_proxy(
-            litellm_config,
-            key_env=proxy_key_env,
-            base_url_env=proxy_base_url_env,
-            providers=providers,
-        )
-
-        with open(litellm_config_path, "w") as f:
-            yaml.dump(litellm_config, f, default_flow_style=False, sort_keys=False)
-
-        print(f"Updated litellm config: {litellm_config_path}")
+        if apply_litellm_proxy_to_file(litellm_config_path, proxy_key_env, proxy_base_url_env, providers):
+            print(f"Updated litellm config: {litellm_config_path}")
+        else:
+            print(f"No changes needed: {litellm_config_path}")
 
     # 6. Validate through CRSComposeConfig and write output
     config = CRSComposeConfig.from_dict(data)
